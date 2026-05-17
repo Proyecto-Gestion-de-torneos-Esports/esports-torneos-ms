@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("api/torneos")
+@RequestMapping("/api/torneos")
 @RequiredArgsConstructor
 
 public class TorneoController {
@@ -38,8 +38,9 @@ public class TorneoController {
     }
 
     @PutMapping("/{torneoId}")
-    public ResponseEntity<TorneoResponseDTO> actualizar(@PathVariable Long torneoId, @Valid @RequestBody TorneoRequestDTO dto) {
-        return torneoService.actualizar(torneoId, dto)
+    public ResponseEntity<TorneoResponseDTO> actualizar(@PathVariable Long torneoId, @Valid @RequestBody TorneoRequestDTO dto,
+                                                        @RequestHeader("usuarioId") Long ejecutorId) {
+        return torneoService.actualizar(torneoId, dto, ejecutorId)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

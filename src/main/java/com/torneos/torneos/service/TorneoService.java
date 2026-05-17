@@ -4,6 +4,7 @@ import com.torneos.torneos.client.*;
 import com.torneos.torneos.dto.AuditoriaRequestDTO;
 import com.torneos.torneos.dto.TorneoRequestDTO;
 import com.torneos.torneos.dto.TorneoResponseDTO;
+import com.torneos.torneos.dto.UsuarioDTO;
 import com.torneos.torneos.model.EstadoTorneo;
 import com.torneos.torneos.model.Torneo;
 import com.torneos.torneos.repository.TorneoRepository;
@@ -32,8 +33,8 @@ public class TorneoService {
     private final UsuarioClient usuarioClient;
     private final AuditoriaClient auditoriaClient;
     private final EquipoClient equipoClient;
-    private final NotificacionesClient notificacionesClient;
 
+    /*Iniciamos el torneo con sus respectivos atributos*/
     private TorneoResponseDTO mapToDto(Torneo torneo) {
         return new TorneoResponseDTO(
                 torneo.getTorneoId(),
@@ -63,9 +64,7 @@ public class TorneoService {
         TorneoResponseDTO respuesta = mapToDto(torneoRepository.save(torneo));
         log.info("Torneo '{}' creado y guardado correctamente con ID: {}", dto.getNombre(), respuesta.getTorneoId());
 
-        String detalleAuditoria = "Se creó un nuevo torneo: '" + dto.getNombre() + "' (ID: " + respuesta.getTorneoId() +
-                ") asociado al Juego ID: " + dto.getIdJuego() +
-                ". Estado inicial: " + dto.getEstado();
+        String detalleAuditoria = "Se creó un nuevo torneo con el ID: " +  respuesta.getTorneoId();
         generarAuditoria(detalleAuditoria);
 
         return respuesta;
@@ -100,7 +99,14 @@ public class TorneoService {
     }
 
     @Transactional
-    public Optional<TorneoResponseDTO> actualizar(Long torneoId, TorneoRequestDTO dto) {
+    public Optional<TorneoResponseDTO> actualizar(Long torneoId, TorneoRequestDTO dto, Long ejecutorId) {
+        UsuarioDTO ejecutor = usuarioClient.obtenerUsuarioPorId(ejecutorId);
+        String rol = ejecutor.getRol();
+
+        if (!"ADMIN".equalsIgnoreCase(rol) && !"ARBITRO".equalsIgnoreCase(rol)) {
+            log.warn("Intento de actualización de torneo no autorizado por el usuario ID: {}", ejecutorId);
+            throw new IllegalArgumentException("Acceso denegado: solo los Árbitros y Administradores pueden actualizar torneos.");
+        }
         return torneoRepository.findById(torneoId).map(existente -> {
             log.info("Torneo con ID: {} encontrado. Actualizando datos", torneoId);
 
@@ -111,8 +117,7 @@ public class TorneoService {
             existente.setEstado(dto.getEstado());
 
             TorneoResponseDTO respuesta = mapToDto(torneoRepository.save(existente));
-            log.info("El Torneo (ID: {}) fue actualizado correctamente", torneoId);
-
+            log.info("El Torneo (ID: {}) fue actualizado correctamente por el usuario ID: {}", torneoId, ejecutorId);
             String detalleAuditoria = "Se actualizaron los datos del torneo con ID: " + torneoId;
             generarAuditoria(detalleAuditoria);
             return respuesta;
@@ -131,15 +136,14 @@ public class TorneoService {
         return torneos.stream().map(this::mapToDto).collect(Collectors.toList());
     }
     public String obtenerRolUsuario(Long usuarioId) {
-        Map<String, Object> usuario = usuarioClient.obtenerUsuarioPorId(usuarioId);
-        if (usuario == null || !usuario.containsKey("rol")) {
+        UsuarioDTO usuario = usuarioClient.obtenerUsuarioPorId(usuarioId);
+        if (usuario == null || usuario.getRol() == null) {
             throw new RuntimeException("Usuario no encontrado o no autorizado.");
         }
-        return usuario.get("rol").toString();
+        return usuario.getRol();
     }
     public void validarJuegoExiste(Long idJuego) {
         Map<String, Object> juego = juegoClient.validarJuegoExiste(idJuego);
-
         if (juego == null) {
             throw new RuntimeException("Error: El juego con ID '" + idJuego + "' no existe en el sistema.");
         }
@@ -161,14 +165,12 @@ public class TorneoService {
             throw new RuntimeException("El equipo ya está inscrito en este torneo.");
         }
         Map<String, Object> equipo = equipoClient.obtenerEquipoPorId(equipoId);
-        if (equipo == null || !equipo.containsKey("correoContacto")) {
-            throw new RuntimeException("El equipo no tiene un correo de contacto válido");
+        if (equipo == null) {
+            throw new RuntimeException("El equipo seleccionado no existe.");
         }
         torneo.getEquiposInscritos().add(equipoId);
         torneoRepository.save(torneo);
-        String correo = equipo.get("correoContacto").toString();
-        notificacionesClient.generarNotificacion(correo, LocalDateTime.now());
-        log.info("Equipo {} inscrito exitosamente en el torneo {}. Notificación enviada.",
+        log.info("Equipo {} inscrito exitosamente en el torneo {}.",
                 equipo.get("nombre"), torneo.getNombre());
     }
 
