@@ -1,9 +1,6 @@
 package com.torneos.torneos.service;
 
-import com.torneos.torneos.client.AuditoriaClient;
-import com.torneos.torneos.client.JuegoClient;
-import com.torneos.torneos.client.PartidaClient;
-import com.torneos.torneos.client.UsuarioClient;
+import com.torneos.torneos.client.*;
 import com.torneos.torneos.dto.AuditoriaRequestDTO;
 import com.torneos.torneos.dto.TorneoRequestDTO;
 import com.torneos.torneos.dto.TorneoResponseDTO;
@@ -16,6 +13,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -32,6 +31,22 @@ public class TorneoService {
     private final PartidaClient partidaClient;
     private final UsuarioClient usuarioClient;
     private final AuditoriaClient auditoriaClient;
+    private final EquipoClient equipoClient;
+    private final NotificacionesClient notificacionesClient;
+
+    private TorneoResponseDTO mapToDto(Torneo torneo) {
+        return new TorneoResponseDTO(
+                torneo.getTorneoId(),
+                torneo.getNombre(),
+                torneo.getFecha(),
+                torneo.getLugar(),
+                torneo.getIdJuego(),
+                torneo.getEstado(),
+                null,
+                null,
+                torneo.getEquiposInscritos()
+        );
+    }
 
     @Transactional
     public TorneoResponseDTO guardar(TorneoRequestDTO dto) {
@@ -43,6 +58,7 @@ public class TorneoService {
         torneo.setLugar(dto.getLugar());
         torneo.setIdJuego(dto.getIdJuego());
         torneo.setEstado(dto.getEstado());
+        torneo.setEquiposInscritos(new HashSet<>());
 
         TorneoResponseDTO respuesta = mapToDto(torneoRepository.save(torneo));
         log.info("Torneo '{}' creado y guardado correctamente con ID: {}", dto.getNombre(), respuesta.getTorneoId());
@@ -54,27 +70,31 @@ public class TorneoService {
 
         return respuesta;
     }
-
     @Transactional(readOnly = true)
     public List<TorneoResponseDTO> listarTodos() {
         log.info("Listando todos los torneos");
         List<Torneo> torneos = torneoRepository.findAll();
         log.info("Hay {} torneos en total", torneos.size());
-        return torneos.stream().map(this::mapToDto).collect(Collectors.toList());
+        return torneos.stream().map(torneo -> {
+            TorneoResponseDTO dto = mapToDto(torneo);
+            List<Object> partidasDelTorneo = partidaClient.obtenerPartidasPorTorneo(torneo.getTorneoId());
+            dto.setCantidadPartidas(partidasDelTorneo != null ? partidasDelTorneo.size() : 0);
+            dto.setPartidas(null);
+            return dto;
+        }).collect(Collectors.toList());
+
     }
     @Transactional(readOnly = true)
     public Optional<TorneoResponseDTO> buscarPorId(Long torneoId) {
+        log.info("Buscando detalle completo del torneo con ID: {}", torneoId);
+
         return torneoRepository.findById(torneoId).map(torneo -> {
             TorneoResponseDTO dto = mapToDto(torneo);
-            try {
-                List<Object> partidas = partidaClient.obtenerPartidasPorTorneo(torneoId);
-                dto.setPartidas(partidas);
-                log.info("Se cargaron {} partidas para el torneo {}", partidas.size(), torneoId);
-            } catch (Exception e) {
-                log.error("No se pudieron cargar las partidas del torneo: {}", e.getMessage());
-                dto.setPartidas(List.of()); //lista sin nada si falla
-            }
-
+            List<Object> partidas = partidaClient.obtenerPartidasPorTorneo(torneoId);
+            dto.setPartidas(partidas);
+            dto.setCantidadPartidas(partidas != null ? partidas.size() : 0);
+            log.info("Se cargaron {} partidas para el torneo {}",
+                    partidas != null ? partidas.size() : 0, torneoId);
             return dto;
         });
     }
@@ -98,7 +118,6 @@ public class TorneoService {
             return respuesta;
         });
     }
-
     @Transactional(readOnly = true)
     public List<TorneoResponseDTO> buscarPorJuegoId(Long idJuego) {
         log.info("Buscando torneos asociados al juego ID: {}", idJuego);
@@ -111,19 +130,6 @@ public class TorneoService {
         List<Torneo> torneos = torneoRepository.findByEstado(estado);
         return torneos.stream().map(this::mapToDto).collect(Collectors.toList());
     }
-
-    private TorneoResponseDTO mapToDto(Torneo torneo) {
-        return new TorneoResponseDTO(
-                torneo.getTorneoId(),
-                torneo.getNombre(),
-                torneo.getFecha(),
-                torneo.getLugar(),
-                torneo.getIdJuego(),
-                torneo.getEstado(),
-                null
-        );
-    }
-
     public String obtenerRolUsuario(Long usuarioId) {
         Map<String, Object> usuario = usuarioClient.obtenerUsuarioPorId(usuarioId);
         if (usuario == null || !usuario.containsKey("rol")) {
@@ -131,7 +137,6 @@ public class TorneoService {
         }
         return usuario.get("rol").toString();
     }
-
     public void validarJuegoExiste(Long idJuego) {
         Map<String, Object> juego = juegoClient.validarJuegoExiste(idJuego);
 
@@ -139,7 +144,6 @@ public class TorneoService {
             throw new RuntimeException("Error: El juego con ID '" + idJuego + "' no existe en el sistema.");
         }
     }
-
     public void generarAuditoria(String detalle){
         AuditoriaRequestDTO dto = new AuditoriaRequestDTO();
         LocalDate ahora = LocalDate.now();
@@ -148,9 +152,24 @@ public class TorneoService {
         auditoriaClient.generarAuditoria(dto);
         log.info("Auditoria generada con exito!");
     }
+    @Transactional
+    public void inscribirEquipo(Long torneoId, Long equipoId) {
+        Torneo torneo = torneoRepository.findById(torneoId)
+                .orElseThrow(() -> new RuntimeException("Torneo no encontrado"));
 
-
-
-
+        if (torneo.getEquiposInscritos().contains(equipoId)){
+            throw new RuntimeException("El equipo ya está inscrito en este torneo.");
+        }
+        Map<String, Object> equipo = equipoClient.obtenerEquipoPorId(equipoId);
+        if (equipo == null || !equipo.containsKey("correoContacto")) {
+            throw new RuntimeException("El equipo no tiene un correo de contacto válido");
+        }
+        torneo.getEquiposInscritos().add(equipoId);
+        torneoRepository.save(torneo);
+        String correo = equipo.get("correoContacto").toString();
+        notificacionesClient.generarNotificacion(correo, LocalDateTime.now());
+        log.info("Equipo {} inscrito exitosamente en el torneo {}. Notificación enviada.",
+                equipo.get("nombre"), torneo.getNombre());
+    }
 
 }

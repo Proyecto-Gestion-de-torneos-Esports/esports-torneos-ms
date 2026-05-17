@@ -4,6 +4,9 @@ import jakarta.persistence.*;
 import lombok.Data;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.Set;
 
 @Entity
 @Data
@@ -28,4 +31,9 @@ public class Torneo {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private EstadoTorneo estado;
+
+    @ElementCollection
+    @CollectionTable(name = "torneo_equipos", joinColumns = @JoinColumn(name = "torneo_id"))
+    @Column(name = "equipo_id")
+    private Set<Long> equiposInscritos = new HashSet<>();
 }

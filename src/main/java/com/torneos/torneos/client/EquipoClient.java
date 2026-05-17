@@ -6,8 +6,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 
 import java.util.Map;
 
-@FeignClient(name = "usuarios", url = "http://localhost:8001/api/usuarios")
-public interface UsuarioClient {
-    @GetMapping("/{usuarioId}")
-    Map<String, Object> obtenerUsuarioPorId(@PathVariable("usuarioId") Long usuarioId);
+@FeignClient(name = "equipos", url = "http://localhost:8002/api/equipos")
+public interface EquipoClient {
+    @GetMapping("/{equipoId}")
+    Map<String, Object> obtenerEquipoPorId(@PathVariable("equipoId") Long equipoId);
 }

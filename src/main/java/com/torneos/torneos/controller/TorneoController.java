@@ -53,4 +53,10 @@ public class TorneoController {
         return ResponseEntity.ok(torneoService.buscarPorJuegoId(idJuego));
     }
 
+    @PostMapping("/{torneoId}/inscribirEquipo/{equipoId}")
+    public ResponseEntity<String>inscribir(@PathVariable Long torneoId, @PathVariable Long equipoId){
+        torneoService.inscribirEquipo(torneoId,equipoId);
+        return ResponseEntity.ok("Equipo Inscrito");
+    }
+
 }
